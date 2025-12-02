@@ -4,6 +4,19 @@ from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
 import os
 
+# ============ POSTER FUNCTION ============
+
+def get_poster_path(title):
+    posters_dir = "posters"
+    filename = f"{title}.jpeg"
+    filepath = os.path.join(posters_dir, filename)
+
+    if os.path.exists(filepath):
+        return filepath
+
+    return os.path.join(posters_dir, "default.jpeg")  # fallback image
+
+
 # ============ Step 1: Load Data ============
 
 movies_path = "data/movies.dat"
@@ -27,7 +40,7 @@ print("Data Loaded Successfully!")
 print("Movies:", movies.shape, "Ratings:", ratings.shape)
 
 
-# ============ Step 2: Content-Based Similarity (Genres) ============
+# ============ Step 2: Content-Based Similarity ============
 
 movies["genres"] = movies["genres"].fillna("")
 movies["genres"] = movies["genres"].str.replace("|", " ", regex=False)
@@ -44,12 +57,11 @@ print("Content-based model ready!")
 ratings_matrix = ratings.pivot(index="movieId", columns="userId", values="rating")
 ratings_matrix_filled = ratings_matrix.fillna(0)
 
-# Load saved similarity if exists
 if os.path.exists("item_similarity.npy"):
     print("Loading similarity matrix from file...")
     item_similarity = np.load("item_similarity.npy")
 else:
-    print("Computing similarity (takes 1-2 minutes)...")
+    print("Computing similarity (1–2 mins)...")
     item_similarity = cosine_similarity(ratings_matrix_filled)
     np.save("item_similarity.npy", item_similarity)
 
@@ -73,14 +85,13 @@ def get_collab_score(movie_id, user_id):
 
     numerator = (sim_scores[mask] * user_ratings[mask]).sum()
     denominator = sim_scores[mask].sum()
-
     if denominator == 0:
         return 0.0
 
     return float(numerator / denominator)
 
 
-# ============ Step 4: Hybrid Recommendation System ============
+# ============ HYBRID RECOMMENDATION ============
 
 def find_movie(title):
     results = movies[movies["title"].str.contains(title, case=False, na=False)]
@@ -103,10 +114,7 @@ def hybrid_recommend(movie_title, user_id, alpha=0.5, beta=0.5, return_df=False)
 
     rec_df = movies.iloc[movie_indices][["movieId", "title", "genres"]].copy()
     rec_df["content_score"] = content_scores
-
-    rec_df["collab_score"] = [
-        get_collab_score(mid, user_id) for mid in rec_df["movieId"]
-    ]
+    rec_df["collab_score"] = [get_collab_score(mid, user_id) for mid in rec_df["movieId"]]
 
     def min_max(x):
         if x.max() == x.min(): return x * 0
@@ -114,18 +122,21 @@ def hybrid_recommend(movie_title, user_id, alpha=0.5, beta=0.5, return_df=False)
 
     rec_df["content_norm"] = min_max(rec_df["content_score"])
     rec_df["collab_norm"] = min_max(rec_df["collab_score"])
-
     rec_df["score"] = alpha * rec_df["content_norm"] + beta * rec_df["collab_norm"]
+
     rec_df = rec_df.sort_values("score", ascending=False).head(10)
 
+    # Add LOCAL poster paths
+    rec_df["poster"] = rec_df["title"].apply(get_poster_path)
+
     if return_df:
-        return rec_df[["title", "genres", "score"]]
+        return rec_df[["title", "genres", "score", "poster"]]
 
     print("\nTop 10 Hybrid Recommendations:")
-    print(rec_df[["title", "genres", "score"]].to_string(index=False))
+    print(rec_df[["title", "genres", "score"]])
 
 
-# ============ Command Line Run ============
+# ============ COMMAND LINE RUN ============
 
 if __name__ == "__main__":
     print("\n🎬 Welcome to Movie Recommendation System 🎬")
